@@ -53,12 +53,51 @@ const App=()=>{
   const handleConfirmSend=async()=>{
     setIsSending(true);
     try{
-      await fetch(API_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify({...formData,tcpRecipients:settings.tcpRecipients,feRecipients:settings.feRecipients})});
+      const payload = {
+        ...formData,
+        tcpRecipients: settings.tcpRecipients,
+        feRecipients: settings.feRecipients
+      };
+      
+      // Google Apps Script로 전송 (JSONP 방식)
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = API_URL;
+      form.target = 'hidden_iframe';
+      
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = 'data';
+      input.value = JSON.stringify(payload);
+      form.appendChild(input);
+      
+      // 숨겨진 iframe 생성
+      let iframe = document.getElementById('hidden_iframe');
+      if (!iframe) {
+        iframe = document.createElement('iframe');
+        iframe.name = 'hidden_iframe';
+        iframe.id = 'hidden_iframe';
+        iframe.style.display = 'none';
+        document.body.appendChild(iframe);
+      }
+      
+      document.body.appendChild(form);
+      form.submit();
+      document.body.removeChild(form);
+      
+      // 로컬 저장
       setRecords(prev=>[{...formData,id:Date.now(),createdAt:new Date().toISOString()},...prev]);
       setFormData({division:'',type:'',reporter:'',date:new Date().toISOString().split('T')[0],shift:'주간',line:'',process:'',productName:'',startTime:'',endTime:'',problem:'',action:'',note:'',recurrence:'최초',recurrenceNote:'',photos:[]});
       setShowPreviewModal(false);
-      alert('발송이 완료되었습니다!');
-    }catch(e){alert('발송 중 오류가 발생했습니다.')}finally{setIsSending(false)}
+      
+      setTimeout(() => {
+        alert('발송이 완료되었습니다!');
+      }, 1000);
+      
+    }catch(e){
+      console.error(e);
+      alert('발송 중 오류가 발생했습니다.');
+    }finally{setIsSending(false)}
   };
 
   const addTcpLine=()=>{if(newTcpLine.trim()&&!settings.tcpLines.includes(newTcpLine.trim())){setSettings(p=>({...p,tcpLines:[...p.tcpLines,newTcpLine.trim()]}));setNewTcpLine('')}};
