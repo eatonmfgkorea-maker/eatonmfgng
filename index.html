@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>불량 공지 시스템</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#0F172A;font-family:'Noto Sans KR',sans-serif}
+    input:focus,select:focus,textarea:focus{outline:none;border-color:#F97316!important;box-shadow:0 0 0 3px rgba(249,115,22,0.2)}
+    input::placeholder,textarea::placeholder{color:#64748B}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .spinner{animation:spin 1s linear infinite}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const{useState,useEffect,useRef}=React;
+const API_URL='https://script.google.com/macros/s/AKfycbyo_Cw5yJ42L-7ZQVTfdNstZrzi5JDyb_ZHyCjN3kxfQQwd593FqsoxV3y8SunS7GrN/exec';
+
+const App=()=>{
+  const[activeTab,setActiveTab]=useState('input');
+  const[records,setRecords]=useState([]);
+  const[settings,setSettings]=useState({tcpLines:['TCP Line 1','TCP Line 2'],feLines:['FE Line 1','FE Line 2'],tcpRecipients:'',feRecipients:''});
+  const[newTcpLine,setNewTcpLine]=useState('');
+  const[newFeLine,setNewFeLine]=useState('');
+  const[selectedImage,setSelectedImage]=useState(null);
+  const[showPreviewModal,setShowPreviewModal]=useState(false);
+  const[isSending,setIsSending]=useState(false);
+  const fileInputRef=useRef(null);
+  const[formData,setFormData]=useState({division:'',type:'',reporter:'',date:new Date().toISOString().split('T')[0],shift:'주간',line:'',process:'',productName:'',startTime:'',endTime:'',problem:'',action:'',note:'',recurrence:'최초',recurrenceNote:'',photos:[]});
+
+  useEffect(()=>{
+    const r=localStorage.getItem('defectRecords');
+    const s=localStorage.getItem('defectSettings');
+    if(r)setRecords(JSON.parse(r));
+    if(s){const p=JSON.parse(s);if(p.lines&&!p.tcpLines){p.tcpLines=p.lines;p.feLines=p.lines;delete p.lines}setSettings(prev=>({...prev,...p}))}
+  },[]);
+  useEffect(()=>{localStorage.setItem('defectRecords',JSON.stringify(records))},[records]);
+  useEffect(()=>{localStorage.setItem('defectSettings',JSON.stringify(settings))},[settings]);
+
+  const handleInputChange=(f,v)=>{setFormData(prev=>{const n={...prev,[f]:v};if(f==='division')n.line='';return n})};
+  const handleReporterChange=(v)=>{const k=v.replace(/[^가-힣ㄱ-ㅎㅏ-ㅣ]/g,'').slice(0,4);setFormData(prev=>({...prev,reporter:k}))};
+  const handlePhotoUpload=(e)=>{Array.from(e.target.files).forEach(f=>{const r=new FileReader();r.onload=(ev)=>{setFormData(prev=>({...prev,photos:[...prev.photos,{id:Date.now()+Math.random(),data:ev.target.result,name:f.name}]}))};r.readAsDataURL(f)});e.target.value=''};
+  const removePhoto=(id)=>{setFormData(prev=>({...prev,photos:prev.photos.filter(p=>p.id!==id)}))};
+  const handlePreviewClick=()=>{if(!formData.division||!formData.type||!formData.reporter||!formData.line||!formData.process||!formData.productName){alert('필수 항목을 입력해주세요');return}setShowPreviewModal(true)};
+  
+  const handleConfirmSend=async()=>{
+    setIsSending(true);
+    try{
+      await fetch(API_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify({...formData,tcpRecipients:settings.tcpRecipients,feRecipients:settings.feRecipients})});
+      setRecords(prev=>[{...formData,id:Date.now(),createdAt:new Date().toISOString()},...prev]);
+      setFormData({division:'',type:'',reporter:'',date:new Date().toISOString().split('T')[0],shift:'주간',line:'',process:'',productName:'',startTime:'',endTime:'',problem:'',action:'',note:'',recurrence:'최초',recurrenceNote:'',photos:[]});
+      setShowPreviewModal(false);
+      alert('발송이 완료되었습니다!');
+    }catch(e){alert('발송 중 오류가 발생했습니다.')}finally{setIsSending(false)}
+  };
+
+  const addTcpLine=()=>{if(newTcpLine.trim()&&!settings.tcpLines.includes(newTcpLine.trim())){setSettings(p=>({...p,tcpLines:[...p.tcpLines,newTcpLine.trim()]}));setNewTcpLine('')}};
+  const removeTcpLine=(l)=>{setSettings(p=>({...p,tcpLines:p.tcpLines.filter(x=>x!==l)}))};
+  const addFeLine=()=>{if(newFeLine.trim()&&!settings.feLines.includes(newFeLine.trim())){setSettings(p=>({...p,feLines:[...p.feLines,newFeLine.trim()]}));setNewFeLine('')}};
+  const removeFeLine=(l)=>{setSettings(p=>({...p,feLines:p.feLines.filter(x=>x!==l)}))};
+  const deleteRecord=(id)=>{if(confirm('정말 삭제하시겠습니까?'))setRecords(p=>p.filter(r=>r.id!==id))};
+  const handleSettingsChange=(f,v)=>{setSettings(p=>({...p,[f]:v}))};
+  const getCurrentLines=()=>formData.division==='TCP'?settings.tcpLines||[]:formData.division==='FE'?settings.feLines||[]:[];
+  const getEmailSubject=()=>`[${formData.type}] - ${formData.line} - ${formData.process} - ${formData.productName}`;
+  const getDownTimeText=()=>!formData.startTime?'-':formData.endTime?`${formData.startTime} → ${formData.endTime}`:`${formData.startTime} (진행중)`;
+  const getRecurrenceText=()=>formData.recurrenceNote?`${formData.recurrence} - ${formData.recurrenceNote}`:formData.recurrence;
+
+  const typeColors={'설비':{bg:'#FEF3C7',text:'#92400E',border:'#F59E0B'},'단품품질':{bg:'#DBEAFE',text:'#1E40AF',border:'#3B82F6'},'자재':{bg:'#D1FAE5',text:'#065F46',border:'#10B981'}};
+  const divisionColors={'TCP':{bg:'#EDE9FE',text:'#5B21B6',border:'#8B5CF6'},'FE':{bg:'#FCE7F3',text:'#9D174D',border:'#EC4899'}};
+
+  return(
+    <div style={{minHeight:'100vh',background:'linear-gradient(135deg,#0F172A,#1E293B)',color:'#E2E8F0',paddingBottom:'100px'}}>
+      <header style={{background:'linear-gradient(90deg,#F97316,#EA580C)',padding:'20px 24px',position:'sticky',top:0,zIndex:100}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',maxWidth:'800px',margin:'0 auto'}}>
+          <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
+            <div style={{width:'44px',height:'44px',background:'rgba(255,255,255,0.2)',borderRadius:'12px',display:'flex',alignItems:'center',justifyContent:'center',color:'white'}}>
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+            </div>
+            <h1 style={{fontSize:'22px',fontWeight:'700',color:'white'}}>불량 공지 시스템</h1>
+          </div>
+          <div style={{fontSize:'14px',color:'rgba(255,255,255,0.9)'}}>{new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric',weekday:'short'})}</div>
+        </div>
+      </header>
+
+      <nav style={{display:'flex',gap:'8px',padding:'16px 24px',background:'#1E293B',borderBottom:'1px solid #334155',justifyContent:'center',position:'sticky',top:'84px',zIndex:99}}>
+        {[{id:'input',label:'등록'},{id:'list',label:'목록'},{id:'settings',label:'설정'}].map(tab=>(
+          <button key={tab.id} onClick={()=>setActiveTab(tab.id)} style={{padding:'12px 24px',background:activeTab===tab.id?'rgba(249,115,22,0.1)':'transparent',border:activeTab===tab.id?'2px solid #F97316':'2px solid transparent',borderRadius:'12px',color:activeTab===tab.id?'#F97316':'#94A3B8',fontSize:'15px',fontWeight:'600',cursor:'pointer'}}>{tab.label}</button>
+        ))}
+      </nav>
+
+      <main style={{maxWidth:'800px',margin:'0 auto',padding:'24px'}}>
+        {activeTab==='input'&&(
+          <div style={{display:'flex',flexDirection:'column',gap:'20px'}}>
+            <div><label style={{fontSize:'14px',fontWeight:'600',color:'#CBD5E1',marginBottom:'8px',display:'block'}}>● 구분 *</label>
+              <div style={{display:'flex',gap:'10px'}}>
+                {['TCP','FE'].map(d=><button key={d} onClick={()=>handleInputChange('division',d)} style={{flex:1,padding:'16px',background:formData.division===d?divisionColors[d].bg:'#1E293B',border:`2px solid ${formData.division===d?divisionColors[d].border:'#334155'}`,borderRadius:'12px',color:formData.division===d?divisionColors[d].text:'#94A3B8',fontSize:'18px',fontWeight:'700',cursor:'pointer'}}>{d}</button>)}
+              </div>
+            </div>
+
+            <div><label style={{fontSize:'14px',fontWeight:'600',color:'#CBD5E1',marginBottom:'8px',display:'block'}}>● 유형 *</label>
+              <div style={{display:'flex',gap:'10px'}}>
+                {['설비','단품품질','자재'].map(t=><button key={t} onClick={()=>handleInputChange('type',t)} style={{flex:1,padding:'14px',background:formData.type===t?typeColors[t].bg:'#1E293B',border:`2px solid ${formData.type===t?typeColors[t].border:'#334155'}`,borderRadius:'12px',color:formData.type===t?typeColors[t].text:'#94A3B8',fontSize:'15px',fontWeight:'600',cursor:'pointer'}}>{t}</button>)}
+              </div>
+            </div>
+
+            <div><label style={{fontSize:'14px',fontWeight:'600',color:'#CBD5E1',marginBottom:'8px',display:'block'}}>● 보고자 * <span style={{fontSize:'12px',color:'#64748B'}}>(한글 4자)</span></label>
+              <input type="text" value={formData.reporter} onChange={e=>handleReporterChange(e.target.value)} placeholder="이름 입력" style={{width:'100%',padding:'14px 16px',background:'#1E293B',border:'2px solid #334155',borderRadius:'12px',color:'#E2E8F0',fontSize:'15px'}}/>
+            </div>
+
+            <div style={{display:'flex',gap:'16px'}}>
+              <div style={{flex:1}}><label style={{fontSize:'14px',fontWeight:'600',color:'#CBD5E1',marginBottom:'8px',display:'block'}}>● 날짜 *</label>
+                <input type="date" value={formData.date} onChange={e=>handleInputChange('date',e.target.value)} style={{width:'100%',padding:'14px 16px',background:'#1E293B',border:'2px solid #334155',borderRadius:'12px',color:'#E2E8F0',fontSize:'15px'}}/>
+              </div>
+              <div style={{flex:1}}><label style={{fontSize:'14px',fontWeight:'600',color:'#CBD5E1',marginBottom:'8px',display:'block'}}>● 근무조</label>
+                <div style={{display:'flex',gap:'10px'}}>
+                  {['주간','야간'].map(sh=><button key={sh} onClick={()=>handleInputChange('shift',sh)} style={{flex:1,padding:'14px',background:formData.shift===sh?'rgba(249,115,22,0.15)':'#1E293B',border:`2px solid ${formData.shift===sh?'#F97316':'#334155'}`,borderRadius:'12px',color:formData.shift===sh?'#F97316':'#94A3B8',fontSize:'15px',fontWeight:'600',cursor:'pointer'}}>{sh==='주간'?'☀️':'🌙'} {sh}</button>)}
+                </div>
+              </div>
+            </div>
+
+            <div style={{display:'flex',gap:'16px'}}>
+              <div style={{flex:1}}><label style={{fontSize:'14px',fontWeight:'600',color:'#CBD5E1',marginBottom:'8px',display:'block'}}>● 라인 * {formData.division&&<span style={{fontSize:'12px',color:'#64748B'}}>({formData.division})</span>}</label>
+                <select value={formData.line} onChange={e=>handleInputChange('line',e.target.value)} disabled={!formData.division} style={{width:'100%',padding:'14px 16px',background:'#1E293B',border:'2px solid #334155',borderRadius:'12px',color:'#E2E8F0',fontSize:'15px',cursor:'pointer'}}>
+                  <option value="">{formData.division?'선택하세요':'구분을 먼저 선택'}</option>
+                  {getCurrentLines().map(l=><option key={l} value={l}>{l}</option>)}
+                </select>
+              </div>
+              <div style={{flex:1}}><label style={{fontSize:'14px',fontWeight:'600',color:'#CBD5E1',marginBottom:'8px',display:'block'}}>● 공정 *</label>
+                <input type="text" value={formData.process} onChange={e=>handleInputChange('process',e.target.value)} placeholder="공정명 입력" style={{width:'100%',padding:'14px 16px',background:'#1E293B',border:'2px solid #334155',borderRadius:'12px',color:'#E2E8F0',fontSize:'15px'}}/>
+              </div>
+            </div>
+
+            <div><label style={{fontSize:'14px',fontWeight:'600',color:'#CBD5E1',marginBottom:'8px',display:'block'}}>● 제품명 *</label>
+              <input type="text" value={formData.productName} onChange={e=>handleInputChange('productName',e.target.value)} placeholder="제품명을 입력하세요" style={{width:'100%',padding:'14px 16px',background:'#1E293B',border:'2px solid #334155',borderRadius:'12px',color:'#E2E8F0',fontSize:'15px'}}/>
+            </div>
+
+            <div><label style={{fontSize:'14px',fontWeight:'600',color:'#CBD5E1',marginBottom:'8px',display:'block'}}>● Down Time</label>
+              <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
+                <div style={{flex:1}}><span style={{fontSize:'12px',color:'#64748B'}}>시작</span><input type="time" value={formData.startTime} onChange={e=>handleInputChange('startTime',e.target.value)} style={{width:'100%',padding:'14px 16px',background:'#1E293B',border:'2px solid #334155',borderRadius:'12px',color:'#E2E8F0',fontSize:'15px',marginTop:'6px'}}/></div>
+                <div style={{color:'#F97316',fontSize:'20px',fontWeight:'700',marginTop:'24px'}}>→</div>
+                <div style={{flex:1}}><span style={{fontSize:'12px',color:'#64748B'}}>종료</span><input type="time" value={formData.endTime} onChange={e=>handleInputChange('endTime',e.target.value)} style={{width:'100%',padding:'14px 16px',background:'#1E293B',border:'2px solid #334155',borderRadius:'12px',color:'#E2E8F0',fontSize:'15px',marginTop:'6px'}}/></div>
+              </div>
+            </div>
+
+            <div><label style={{fontSize:'14px',fontWeight:'600',color:'#CBD5E1',marginBottom:'8px',display:'block'}}>● 문제점 (원인)</label>
+              <textarea value={formData.problem} onChange={e=>handleInputChange('problem',e.target.value)} placeholder="문제점 및 원인을 입력하세요" rows={3} style={{width:'100%',padding:'14px 16px',background:'#1E293B',border:'2px solid #334155',borderRadius:'12px',color:'#E2E8F0',fontSize:'15px',resize:'vertical',fontFamily:'inherit'}}/>
+            </div>
+
+            <div><label style={{fontSize:'14px',fontWeight:'600',color:'#CBD5E1',marginBottom:'8px',display:'block'}}>● 조치사항</label>
+              <textarea value={formData.action} onChange={e=>handleInputChange('action',e.target.value)} placeholder="조치사항을 입력하세요" rows={3} style={{width:'100%',padding:'14px 16px',background:'#1E293B',border:'2px solid #334155',borderRadius:'12px',color:'#E2E8F0',fontSize:'15px',resize:'vertical',fontFamily:'inherit'}}/>
+            </div>
+
+            <div><label style={{fontSize:'14px',fontWeight:'600',color:'#CBD5E1',marginBottom:'8px',display:'block'}}>● 기타</label>
+              <textarea value={formData.note} onChange={e=>handleInputChange('note',e.target.value)} placeholder="기타 내용을 입력하세요" rows={2} style={{width:'100%',padding:'14px 16px',background:'#1E293B',border:'2px solid #334155',borderRadius:'12px',color:'#E2E8F0',fontSize:'15px',resize:'vertical',fontFamily:'inherit'}}/>
+            </div>
+
+            <div><label style={{fontSize:'14px',fontWeight:'600',color:'#CBD5E1',marginBottom:'8px',display:'block'}}>● 사진 첨부</label>
+              <input type="file" ref={fileInputRef} onChange={handlePhotoUpload} accept="image/*" multiple style={{display:'none'}}/>
+              <button onClick={()=>fileInputRef.current?.click()} style={{width:'100%',display:'flex',alignItems:'center',justifyContent:'center',gap:'12px',padding:'20px',background:'#1E293B',border:'2px dashed #475569',borderRadius:'12px',color:'#94A3B8',fontSize:'15px',cursor:'pointer'}}>📷 사진 추가하기</button>
+              {formData.photos.length>0&&<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(100px,1fr))',gap:'12px',marginTop:'12px'}}>
+                {formData.photos.map(p=><div key={p.id} style={{position:'relative',aspectRatio:'1',borderRadius:'10px',overflow:'hidden',border:'2px solid #334155'}}>
+                  <img src={p.data} style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                  <button onClick={()=>removePhoto(p.id)} style={{position:'absolute',top:'6px',right:'6px',width:'24px',height:'24px',background:'rgba(239,68,68,0.9)',border:'none',borderRadius:'50%',color:'white',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
+                </div>)}
+              </div>}
+            </div>
+
+            <div><label style={{fontSize:'14px',fontWeight:'600',color:'#CBD5E1',marginBottom:'8px',display:'block'}}>● 재발여부</label>
+              <div style={{display:'flex',gap:'12px',alignItems:'center'}}>
+                <div style={{display:'flex',gap:'8px'}}>
+                  {['최초','재발'].map(r=><button key={r} onClick={()=>handleInputChange('recurrence',r)} style={{padding:'12px 20px',background:formData.recurrence===r?(r==='재발'?'rgba(239,68,68,0.15)':'rgba(34,197,94,0.15)'):'#1E293B',border:`2px solid ${formData.recurrence===r?(r==='재발'?'#EF4444':'#22C55E'):'#334155'}`,borderRadius:'10px',color:formData.recurrence===r?(r==='재발'?'#EF4444':'#22C55E'):'#94A3B8',fontSize:'14px',fontWeight:'600',cursor:'pointer'}}>{r}</button>)}
+                </div>
+                <input type="text" value={formData.recurrenceNote} onChange={e=>handleInputChange('recurrenceNote',e.target.value)} placeholder="추가 내용" style={{flex:1,padding:'12px 16px',background:'#1E293B',border:'2px solid #334155',borderRadius:'10px',color:'#E2E8F0',fontSize:'14px'}}/>
+              </div>
+            </div>
+
+            <button onClick={handlePreviewClick} style={{display:'flex',alignItems:'center',justifyContent:'center',gap:'10px',padding:'18px',background:'linear-gradient(90deg,#3B82F6,#2563EB)',border:'none',borderRadius:'14px',color:'white',fontSize:'17px',fontWeight:'700',cursor:'pointer',marginTop:'12px'}}>👁️ 미리보기</button>
+          </div>
+        )}
+
+        {activeTab==='list'&&(
+          <div style={{display:'flex',flexDirection:'column',gap:'16px'}}>
+            {records.length===0?<div style={{textAlign:'center',padding:'60px 20px',color:'#64748B'}}><div style={{fontSize:'48px',marginBottom:'16px'}}>📋</div><p>등록된 불량 공지가 없습니다</p></div>:
+              records.map(r=><div key={r.id} style={{background:'#1E293B',borderRadius:'16px',border:'1px solid #334155',overflow:'hidden'}}>
+                <div style={{display:'flex',alignItems:'center',gap:'10px',padding:'14px 18px',background:'#0F172A',borderBottom:'1px solid #334155',flexWrap:'wrap'}}>
+                  {r.division&&<span style={{padding:'6px 14px',borderRadius:'8px',fontSize:'13px',fontWeight:'700',background:divisionColors[r.division]?.bg,color:divisionColors[r.division]?.text,border:`1px solid ${divisionColors[r.division]?.border}`}}>{r.division}</span>}
+                  <span style={{padding:'6px 14px',borderRadius:'8px',fontSize:'13px',fontWeight:'700',background:typeColors[r.type]?.bg,color:typeColors[r.type]?.text,border:`1px solid ${typeColors[r.type]?.border}`}}>{r.type}</span>
+                  <span style={{padding:'6px 12px',borderRadius:'8px',fontSize:'12px',fontWeight:'600',background:r.recurrence==='재발'?'rgba(239,68,68,0.15)':'rgba(34,197,94,0.15)',color:r.recurrence==='재발'?'#EF4444':'#22C55E'}}>{r.recurrence}</span>
+                  {r.photos?.length>0&&<span style={{padding:'6px 12px',borderRadius:'8px',fontSize:'12px',fontWeight:'600',background:'rgba(59,130,246,0.15)',color:'#3B82F6'}}>📷 {r.photos.length}</span>}
+                  <button onClick={()=>deleteRecord(r.id)} style={{marginLeft:'auto',padding:'8px',background:'transparent',border:'none',color:'#64748B',cursor:'pointer'}}>✕</button>
+                </div>
+                <div style={{padding:'18px'}}>
+                  <h3 style={{fontSize:'18px',fontWeight:'700',color:'#F1F5F9',marginBottom:'8px'}}>{r.productName}</h3>
+                  <div style={{fontSize:'14px',color:'#94A3B8',marginBottom:'12px'}}>{r.reporter&&<>보고자: {r.reporter} • </>}{r.date} {r.shift} • {r.line} • {r.process}</div>
+                  {r.startTime&&<div style={{fontSize:'14px',color:'#F97316',fontWeight:'600',marginBottom:'12px'}}>⏱️ {r.startTime} {r.endTime?`→ ${r.endTime}`:'(진행중)'}</div>}
+                  {r.problem&&<div style={{fontSize:'14px',color:'#CBD5E1',marginBottom:'8px'}}><strong>문제점:</strong> {r.problem}</div>}
+                  {r.action&&<div style={{fontSize:'14px',color:'#CBD5E1',marginBottom:'8px'}}><strong>조치:</strong> {r.action}</div>}
+                  {r.photos?.length>0&&<div style={{marginTop:'16px',paddingTop:'16px',borderTop:'1px solid #334155'}}><div style={{fontSize:'13px',fontWeight:'600',color:'#94A3B8',marginBottom:'10px'}}>📷 첨부 사진</div><div style={{display:'flex',gap:'8px',flexWrap:'wrap'}}>{r.photos.map(p=><img key={p.id} src={p.data} onClick={()=>setSelectedImage(p.data)} style={{width:'72px',height:'72px',objectFit:'cover',borderRadius:'8px',border:'2px solid #334155',cursor:'pointer'}}/>)}</div></div>}
+                </div>
+              </div>)
+            }
+          </div>
+        )}
+
+        {activeTab==='settings'&&(
+          <div style={{display:'flex',flexDirection:'column',gap:'28px'}}>
+            <div style={{background:'#1E293B',borderRadius:'16px',padding:'24px',border:'1px solid #334155'}}>
+              <h2 style={{fontSize:'18px',fontWeight:'700',color:'#F1F5F9',marginBottom:'20px'}}>📧 메일 발송 설정</h2>
+              <div style={{marginBottom:'20px'}}>
+                <div style={{fontSize:'14px',fontWeight:'600',color:'#CBD5E1',marginBottom:'10px'}}><span style={{padding:'4px 12px',borderRadius:'6px',fontSize:'13px',fontWeight:'700',background:divisionColors.TCP.bg,color:divisionColors.TCP.text,border:`1px solid ${divisionColors.TCP.border}`,marginRight:'10px'}}>TCP</span>수신자</div>
+                <textarea value={settings.tcpRecipients} onChange={e=>handleSettingsChange('tcpRecipients',e.target.value)} placeholder="이메일 주소 (쉼표로 구분)" rows={3} style={{width:'100%',padding:'14px 16px',background:'#0F172A',border:'2px solid #334155',borderRadius:'12px',color:'#E2E8F0',fontSize:'14px',resize:'vertical',fontFamily:'inherit'}}/>
+              </div>
+              <div>
+                <div style={{fontSize:'14px',fontWeight:'600',color:'#CBD5E1',marginBottom:'10px'}}><span style={{padding:'4px 12px',borderRadius:'6px',fontSize:'13px',fontWeight:'700',background:divisionColors.FE.bg,color:divisionColors.FE.text,border:`1px solid ${divisionColors.FE.border}`,marginRight:'10px'}}>FE</span>수신자</div>
+                <textarea value={settings.feRecipients} onChange={e=>handleSettingsChange('feRecipients',e.target.value)} placeholder="이메일 주소 (쉼표로 구분)" rows={3} style={{width:'100%',padding:'14px 16px',background:'#0F172A',border:'2px solid #334155',borderRadius:'12px',color:'#E2E8F0',fontSize:'14px',resize:'vertical',fontFamily:'inherit'}}/>
+              </div>
+              <div style={{fontSize:'13px',color:'#64748B',background:'#0F172A',padding:'12px 16px',borderRadius:'10px',marginTop:'16px'}}>💡 설정된 수신자 목록은 자동으로 저장됩니다.</div>
+            </div>
+
+            <div style={{background:'#1E293B',borderRadius:'16px',padding:'24px',border:'1px solid #334155'}}>
+              <h2 style={{fontSize:'18px',fontWeight:'700',color:'#F1F5F9',marginBottom:'20px'}}><span style={{padding:'4px 12px',borderRadius:'6px',fontSize:'14px',fontWeight:'700',background:divisionColors.TCP.bg,color:divisionColors.TCP.text,border:`1px solid ${divisionColors.TCP.border}`,marginRight:'10px'}}>TCP</span>라인 관리</h2>
+              <div style={{display:'flex',gap:'12px',marginBottom:'16px'}}>
+                <input type="text" value={newTcpLine} onChange={e=>setNewTcpLine(e.target.value)} onKeyPress={e=>e.key==='Enter'&&addTcpLine()} placeholder="새 TCP 라인 이름" style={{flex:1,padding:'14px 16px',background:'#0F172A',border:'2px solid #334155',borderRadius:'12px',color:'#E2E8F0',fontSize:'15px'}}/>
+                <button onClick={addTcpLine} style={{padding:'14px 24px',background:'linear-gradient(90deg,#8B5CF6,#7C3AED)',border:'none',borderRadius:'12px',color:'white',fontSize:'15px',fontWeight:'600',cursor:'pointer'}}>추가</button>
+              </div>
+              <div style={{display:'flex',flexWrap:'wrap',gap:'10px'}}>{settings.tcpLines?.map(l=><div key={l} style={{display:'flex',alignItems:'center',gap:'8px',padding:'10px 16px',background:'#0F172A',borderRadius:'10px',fontSize:'14px',color:'#E2E8F0',border:'1px solid #334155'}}>{l}<button onClick={()=>removeTcpLine(l)} style={{background:'transparent',border:'none',color:'#EF4444',fontSize:'18px',cursor:'pointer'}}>×</button></div>)}</div>
+            </div>
+
+            <div style={{background:'#1E293B',borderRadius:'16px',padding:'24px',border:'1px solid #334155'}}>
+              <h2 style={{fontSize:'18px',fontWeight:'700',color:'#F1F5F9',marginBottom:'20px'}}><span style={{padding:'4px 12px',borderRadius:'6px',fontSize:'14px',fontWeight:'700',background:divisionColors.FE.bg,color:divisionColors.FE.text,border:`1px solid ${divisionColors.FE.border}`,marginRight:'10px'}}>FE</span>라인 관리</h2>
+              <div style={{display:'flex',gap:'12px',marginBottom:'16px'}}>
+                <input type="text" value={newFeLine} onChange={e=>setNewFeLine(e.target.value)} onKeyPress={e=>e.key==='Enter'&&addFeLine()} placeholder="새 FE 라인 이름" style={{flex:1,padding:'14px 16px',background:'#0F172A',border:'2px solid #334155',borderRadius:'12px',color:'#E2E8F0',fontSize:'15px'}}/>
+                <button onClick={addFeLine} style={{padding:'14px 24px',background:'linear-gradient(90deg,#EC4899,#DB2777)',border:'none',borderRadius:'12px',color:'white',fontSize:'15px',fontWeight:'600',cursor:'pointer'}}>추가</button>
+              </div>
+              <div style={{display:'flex',flexWrap:'wrap',gap:'10px'}}>{settings.feLines?.map(l=><div key={l} style={{display:'flex',alignItems:'center',gap:'8px',padding:'10px 16px',background:'#0F172A',borderRadius:'10px',fontSize:'14px',color:'#E2E8F0',border:'1px solid #334155'}}>{l}<button onClick={()=>removeFeLine(l)} style={{background:'transparent',border:'none',color:'#EF4444',fontSize:'18px',cursor:'pointer'}}>×</button></div>)}</div>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {showPreviewModal&&(
+        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000,padding:'20px',overflowY:'auto'}}>
+          <div style={{background:'#1E293B',borderRadius:'20px',maxWidth:'600px',width:'100%',maxHeight:'90vh',overflow:'hidden',display:'flex',flexDirection:'column',border:'1px solid #334155'}}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'20px 24px',borderBottom:'1px solid #334155',background:'#0F172A'}}>
+              <h3 style={{fontSize:'18px',fontWeight:'700',color:'#F1F5F9'}}>📧 메일 미리보기</h3>
+              <button onClick={()=>setShowPreviewModal(false)} style={{background:'transparent',border:'none',color:'#64748B',cursor:'pointer',fontSize:'20px'}}>✕</button>
+            </div>
+            <div style={{padding:'24px',overflowY:'auto',flex:1}}>
+              <div style={{background:'#0F172A',borderRadius:'10px',padding:'12px 16px',marginBottom:'16px'}}><span style={{fontSize:'13px',color:'#64748B'}}>수신자: </span><span style={{fontSize:'13px',color:'#E2E8F0'}}>{formData.division==='TCP'?settings.tcpRecipients||'(설정 필요)':settings.feRecipients||'(설정 필요)'}</span></div>
+              <div style={{background:'#0F172A',borderRadius:'12px',padding:'16px',marginBottom:'20px',border:'1px solid #334155'}}><div style={{fontSize:'12px',color:'#64748B',marginBottom:'8px'}}>제목</div><div style={{fontSize:'15px',color:'#F97316',fontWeight:'600'}}>{getEmailSubject()}</div></div>
+              <div style={{background:'#0F172A',borderRadius:'12px',padding:'20px',border:'1px solid #334155'}}>
+                {[['1','보고자',formData.reporter],['2','유형',formData.type],['3','날짜',`${formData.date} ${formData.shift}`],['4','라인/공정',`${formData.line} / ${formData.process}`],['5','제품명',formData.productName],['6','Down Time',getDownTimeText()],['7','문제점(원인)',formData.problem||'-'],['8','조치 사항',formData.action||'-'],['9','기타',formData.note||'-'],['10','재발여부',getRecurrenceText()]].map(([n,l,v])=>
+                  <div key={n} style={{display:'flex',gap:'8px',marginBottom:'14px'}}><span style={{color:'#F97316',fontWeight:'700',minWidth:'24px'}}>{n}.</span><span style={{color:'#94A3B8',fontWeight:'600'}}>{l} :</span><span style={{color:'#E2E8F0',flex:1}}>{v}</span></div>
+                )}
+                <div style={{display:'flex',gap:'8px',marginBottom:'14px'}}><span style={{color:'#F97316',fontWeight:'700',minWidth:'24px'}}>11.</span><span style={{color:'#94A3B8',fontWeight:'600'}}>관련 사진</span></div>
+                {formData.photos.length>0?<div style={{display:'flex',gap:'10px',flexWrap:'wrap',marginLeft:'32px'}}>{formData.photos.map(p=><img key={p.id} src={p.data} style={{width:'80px',height:'80px',objectFit:'cover',borderRadius:'8px',border:'2px solid #334155'}}/>)}</div>:<div style={{marginLeft:'32px',fontSize:'13px',color:'#64748B'}}>첨부된 사진이 없습니다.</div>}
+              </div>
+            </div>
+            <div style={{display:'flex',gap:'12px',padding:'20px 24px',borderTop:'1px solid #334155',background:'#0F172A'}}>
+              <button onClick={()=>setShowPreviewModal(false)} disabled={isSending} style={{flex:1,padding:'14px',background:'#334155',border:'none',borderRadius:'12px',color:'#E2E8F0',fontSize:'15px',fontWeight:'600',cursor:'pointer'}}>취소</button>
+              <button onClick={handleConfirmSend} disabled={isSending} style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',gap:'8px',padding:'14px',background:isSending?'#666':'linear-gradient(90deg,#F97316,#EA580C)',border:'none',borderRadius:'12px',color:'white',fontSize:'15px',fontWeight:'600',cursor:isSending?'not-allowed':'pointer'}}>{isSending?'발송 중...':'✈️ 발송하기'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedImage&&(
+        <div onClick={()=>setSelectedImage(null)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.9)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1001,padding:'20px'}}>
+          <img src={selectedImage} style={{maxWidth:'90vw',maxHeight:'85vh',objectFit:'contain',borderRadius:'8px'}}/>
+        </div>
+      )}
+    </div>
+  );
+};
+
+ReactDOM.render(<App/>,document.getElementById('root'));
+</script>
+</body>
+</html>
