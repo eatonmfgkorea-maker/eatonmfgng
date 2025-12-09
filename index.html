@@ -33,7 +33,7 @@ const App=()=>{
   const[showPreviewModal,setShowPreviewModal]=useState(false);
   const[isSending,setIsSending]=useState(false);
   const fileInputRef=useRef(null);
-  const[formData,setFormData]=useState({division:'',type:'',reporter:'',date:new Date().toISOString().split('T')[0],shift:'주간',line:'',process:'',productName:'',startTime:'',endTime:'',problem:'',action:'',note:'',recurrence:'최초',recurrenceNote:'',photos:[]});
+  const[formData,setFormData]=useState({division:'',type:'',reporter:'',title:'',date:new Date().toISOString().split('T')[0],shift:'주간',line:'',process:'',productName:'',startTime:'',endTime:'',problem:'',action:'',note:'',recurrence:'최초',recurrenceNote:'',photos:[]});
 
   useEffect(()=>{
     const r=localStorage.getItem('defectRecords');
@@ -48,7 +48,7 @@ const App=()=>{
   const handleReporterChange=(v)=>{const k=v.replace(/[^가-힣ㄱ-ㅎㅏ-ㅣ]/g,'').slice(0,4);setFormData(prev=>({...prev,reporter:k}))};
   const handlePhotoUpload=(e)=>{Array.from(e.target.files).forEach(f=>{const r=new FileReader();r.onload=(ev)=>{setFormData(prev=>({...prev,photos:[...prev.photos,{id:Date.now()+Math.random(),data:ev.target.result,name:f.name}]}))};r.readAsDataURL(f)});e.target.value=''};
   const removePhoto=(id)=>{setFormData(prev=>({...prev,photos:prev.photos.filter(p=>p.id!==id)}))};
-  const handlePreviewClick=()=>{if(!formData.division||!formData.type||!formData.reporter||!formData.line||!formData.process||!formData.productName){alert('필수 항목을 입력해주세요');return}setShowPreviewModal(true)};
+  const handlePreviewClick=()=>{if(!formData.division||!formData.type||!formData.reporter||!formData.title||!formData.line||!formData.process||!formData.productName){alert('필수 항목을 입력해주세요 (구분, 유형, 보고자, 제목, 라인, 공정, 제품명)');return}setShowPreviewModal(true)};
   
   const handleConfirmSend=async()=>{
     setIsSending(true);
@@ -59,7 +59,6 @@ const App=()=>{
         feRecipients: settings.feRecipients
       };
       
-      // Google Apps Script로 전송 (JSONP 방식)
       const form = document.createElement('form');
       form.method = 'POST';
       form.action = API_URL;
@@ -71,7 +70,6 @@ const App=()=>{
       input.value = JSON.stringify(payload);
       form.appendChild(input);
       
-      // 숨겨진 iframe 생성
       let iframe = document.getElementById('hidden_iframe');
       if (!iframe) {
         iframe = document.createElement('iframe');
@@ -85,9 +83,8 @@ const App=()=>{
       form.submit();
       document.body.removeChild(form);
       
-      // 로컬 저장
       setRecords(prev=>[{...formData,id:Date.now(),createdAt:new Date().toISOString()},...prev]);
-      setFormData({division:'',type:'',reporter:'',date:new Date().toISOString().split('T')[0],shift:'주간',line:'',process:'',productName:'',startTime:'',endTime:'',problem:'',action:'',note:'',recurrence:'최초',recurrenceNote:'',photos:[]});
+      setFormData({division:'',type:'',reporter:'',title:'',date:new Date().toISOString().split('T')[0],shift:'주간',line:'',process:'',productName:'',startTime:'',endTime:'',problem:'',action:'',note:'',recurrence:'최초',recurrenceNote:'',photos:[]});
       setShowPreviewModal(false);
       
       setTimeout(() => {
@@ -107,7 +104,7 @@ const App=()=>{
   const deleteRecord=(id)=>{if(confirm('정말 삭제하시겠습니까?'))setRecords(p=>p.filter(r=>r.id!==id))};
   const handleSettingsChange=(f,v)=>{setSettings(p=>({...p,[f]:v}))};
   const getCurrentLines=()=>formData.division==='TCP'?settings.tcpLines||[]:formData.division==='FE'?settings.feLines||[]:[];
-  const getEmailSubject=()=>`[${formData.type}] - ${formData.line} - ${formData.process} - ${formData.productName}`;
+  const getEmailSubject=()=>`[품질결함] - ${formData.line} - ${formData.process} - ${formData.title}`;
   const getDownTimeText=()=>!formData.startTime?'-':formData.endTime?`${formData.startTime} → ${formData.endTime}`:`${formData.startTime} (진행중)`;
   const getRecurrenceText=()=>formData.recurrenceNote?`${formData.recurrence} - ${formData.recurrenceNote}`:formData.recurrence;
 
@@ -151,6 +148,10 @@ const App=()=>{
 
             <div><label style={{fontSize:'14px',fontWeight:'600',color:'#CBD5E1',marginBottom:'8px',display:'block'}}>● 보고자 * <span style={{fontSize:'12px',color:'#64748B'}}>(한글 4자)</span></label>
               <input type="text" value={formData.reporter} onChange={e=>handleReporterChange(e.target.value)} placeholder="이름 입력" style={{width:'100%',padding:'14px 16px',background:'#1E293B',border:'2px solid #334155',borderRadius:'12px',color:'#E2E8F0',fontSize:'15px'}}/>
+            </div>
+
+            <div><label style={{fontSize:'14px',fontWeight:'600',color:'#CBD5E1',marginBottom:'8px',display:'block'}}>● 제목 *</label>
+              <input type="text" value={formData.title} onChange={e=>handleInputChange('title',e.target.value)} placeholder="메일 제목에 들어갈 내용" style={{width:'100%',padding:'14px 16px',background:'#1E293B',border:'2px solid #334155',borderRadius:'12px',color:'#E2E8F0',fontSize:'15px'}}/>
             </div>
 
             <div style={{display:'flex',gap:'16px'}}>
@@ -236,8 +237,9 @@ const App=()=>{
                   <button onClick={()=>deleteRecord(r.id)} style={{marginLeft:'auto',padding:'8px',background:'transparent',border:'none',color:'#64748B',cursor:'pointer'}}>✕</button>
                 </div>
                 <div style={{padding:'18px'}}>
-                  <h3 style={{fontSize:'18px',fontWeight:'700',color:'#F1F5F9',marginBottom:'8px'}}>{r.productName}</h3>
+                  <h3 style={{fontSize:'18px',fontWeight:'700',color:'#F1F5F9',marginBottom:'8px'}}>{r.title || r.productName}</h3>
                   <div style={{fontSize:'14px',color:'#94A3B8',marginBottom:'12px'}}>{r.reporter&&<>보고자: {r.reporter} • </>}{r.date} {r.shift} • {r.line} • {r.process}</div>
+                  {r.productName&&<div style={{fontSize:'14px',color:'#CBD5E1',marginBottom:'8px'}}><strong>제품명:</strong> {r.productName}</div>}
                   {r.startTime&&<div style={{fontSize:'14px',color:'#F97316',fontWeight:'600',marginBottom:'12px'}}>⏱️ {r.startTime} {r.endTime?`→ ${r.endTime}`:'(진행중)'}</div>}
                   {r.problem&&<div style={{fontSize:'14px',color:'#CBD5E1',marginBottom:'8px'}}><strong>문제점:</strong> {r.problem}</div>}
                   {r.action&&<div style={{fontSize:'14px',color:'#CBD5E1',marginBottom:'8px'}}><strong>조치:</strong> {r.action}</div>}
