@@ -86,10 +86,9 @@ const App=()=>{
       setRecords(prev=>[{...formData,id:Date.now(),createdAt:new Date().toISOString()},...prev]);
       setFormData({division:'',type:'',reporter:'',title:'',date:new Date().toISOString().split('T')[0],shift:'주간',line:'',process:'',productName:'',startTime:'',endTime:'',problem:'',action:'',note:'',recurrence:'최초',recurrenceNote:'',photos:[]});
       setShowPreviewModal(false);
+      setActiveTab('input');
       
-      setTimeout(() => {
-        alert('발송이 완료되었습니다!');
-      }, 1000);
+      alert('발송이 완료되었습니다!');
       
     }catch(e){
       console.error(e);
