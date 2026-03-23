@@ -108,8 +108,47 @@ function showToast(msg,type){const el=document.getElementById("toast");el.textCo
 
 async function fetchServer(p){const r=await fetch(SCRIPT_URL+"?"+p,{redirect:"follow"});const t=await r.text();try{return JSON.parse(t);}catch{return{};}}
 async function postServer(p){const r=await fetch(SCRIPT_URL,{method:"POST",body:JSON.stringify(p),redirect:"follow"});const t=await r.text();try{return JSON.parse(t);}catch{return{success:true};}}
-async function loadSettingsFromServer(){try{const d=await fetchServer("action=getSettings");if(d.settings){settings=d.settings;localStorage.setItem("defect-st-cache",JSON.stringify(settings));return;}}catch(e){}try{const c=localStorage.getItem("defect-st-cache");settings=c?JSON.parse(c):JSON.parse(JSON.stringify(DEFAULT_SETTINGS));}catch{settings=JSON.parse(JSON.stringify(DEFAULT_SETTINGS));}}
-async function saveSettingsToServer(){localStorage.setItem("defect-st-cache",JSON.stringify(settings));try{await postServer({action:"saveSettings",settings});}catch(e){console.log("서버 저장 실패");}}
+async function loadSettingsFromServer(){
+  try{
+    // 수신자 설정 로드
+    const d=await fetchServer("action=getSettings");
+    if(d.settings){settings=d.settings;}else{settings=JSON.parse(JSON.stringify(DEFAULT_SETTINGS));}
+    // Part No 데이터 로드 (별도 시트)
+    const pd=await fetchServer("action=getPartData");
+    if(pd.partData){settings.lines=pd.partData.lines||{};settings.products=pd.partData.products||{};settings.partNumbers=pd.partData.partNumbers||{};}
+    if(!settings.recipients)settings.recipients={TCP:[],FE:[]};
+    if(!settings.lines)settings.lines={};
+    if(!settings.products)settings.products={};
+    if(!settings.partNumbers)settings.partNumbers={};
+    localStorage.setItem("defect-st-cache",JSON.stringify(settings));
+  }catch(e){
+    try{const c=localStorage.getItem("defect-st-cache");settings=c?JSON.parse(c):JSON.parse(JSON.stringify(DEFAULT_SETTINGS));}catch{settings=JSON.parse(JSON.stringify(DEFAULT_SETTINGS));}
+  }
+}
+async function saveSettingsToServer(){
+  localStorage.setItem("defect-st-cache",JSON.stringify(settings));
+  try{await postServer({action:"saveSettings",settings:{recipients:settings.recipients}});}catch(e){console.log("수신자 저장 실패");}
+}
+async function savePartDataToServer(){
+  localStorage.setItem("defect-st-cache",JSON.stringify(settings));
+  // settings에서 행 단위 데이터로 변환
+  const rows=[];
+  const lines=settings.lines||{}, products=settings.products||{}, partNumbers=settings.partNumbers||{};
+  for(const div of Object.keys(lines)){
+    for(const line of lines[div]){
+      const lk=`${div}-${line}`;
+      const prods=products[lk]||[];
+      for(const prod of prods){
+        const pk=`${lk}__${prod}`;
+        const pns=partNumbers[pk]||[];
+        if(pns.length){pns.forEach(pn=>rows.push([div,line,prod,pn]));}
+        else{rows.push([div,line,prod,""]);}
+      }
+      if(!prods.length)rows.push([div,line,"",""]);
+    }
+  }
+  try{await postServer({action:"savePartData",rows});showToast(`✅ ${rows.length}행 서버 저장 완료!`);}catch(e){showToast("서버 저장 실패","error");}
+}
 function loadHistory(){try{const v=localStorage.getItem("defect-hist-v7");history=v?JSON.parse(v):[];}catch{history=[];}}
 function saveHistory(){localStorage.setItem("defect-hist-v7",JSON.stringify(history));}
 
@@ -609,8 +648,7 @@ function renderPartData(w){
       settings.lines=result.lines;
       settings.products=result.products;
       settings.partNumbers=result.partNumbers;
-      await saveSettingsToServer();
-      showToast(`✅ ${result.count}개 Part No 데이터 업로드 완료!`);
+      await savePartDataToServer();
       render();
     }catch(err){
       showToast("엑셀 파싱 실패: "+err.message,"error");
@@ -624,7 +662,7 @@ function renderPartData(w){
   sec.appendChild(h("button",{style:{marginTop:"16px",width:"100%",padding:"10px",borderRadius:"8px",border:"1px solid #fecaca",background:"#fff",color:"#dc2626",fontSize:"13px",fontWeight:"600",cursor:"pointer"},onClick:()=>{
     if(!confirm("모든 라인/제품/Part No 데이터를 초기화하시겠습니까?"))return;
     settings.lines={TCP:[],FE:[]};settings.products={};settings.partNumbers={};
-    saveSettingsToServer();showToast("데이터 초기화 완료");render();
+    savePartDataToServer();render();
   }},"🗑 데이터 초기화"));
 
   w.appendChild(sec);
