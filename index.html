@@ -110,16 +110,13 @@ async function fetchServer(p){const r=await fetch(SCRIPT_URL+"?"+p,{redirect:"fo
 async function postServer(p){const r=await fetch(SCRIPT_URL,{method:"POST",body:JSON.stringify(p),redirect:"follow"});const t=await r.text();try{return JSON.parse(t);}catch{return{success:true};}}
 async function loadSettingsFromServer(){
   try{
-    // 수신자 설정 로드
-    const d=await fetchServer("action=getSettings");
-    if(d.settings){settings=d.settings;}else{settings=JSON.parse(JSON.stringify(DEFAULT_SETTINGS));}
-    // Part No 데이터 로드 (별도 시트)
+    settings=JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+    // 수신자 로드
+    const rd=await fetchServer("action=getRecipients");
+    if(rd.recipients) settings.recipients=rd.recipients;
+    // Part No 데이터 로드
     const pd=await fetchServer("action=getPartData");
     if(pd.partData){settings.lines=pd.partData.lines||{};settings.products=pd.partData.products||{};settings.partNumbers=pd.partData.partNumbers||{};}
-    if(!settings.recipients)settings.recipients={TCP:[],FE:[]};
-    if(!settings.lines)settings.lines={};
-    if(!settings.products)settings.products={};
-    if(!settings.partNumbers)settings.partNumbers={};
     localStorage.setItem("defect-st-cache",JSON.stringify(settings));
   }catch(e){
     try{const c=localStorage.getItem("defect-st-cache");settings=c?JSON.parse(c):JSON.parse(JSON.stringify(DEFAULT_SETTINGS));}catch{settings=JSON.parse(JSON.stringify(DEFAULT_SETTINGS));}
@@ -127,7 +124,7 @@ async function loadSettingsFromServer(){
 }
 async function saveSettingsToServer(){
   localStorage.setItem("defect-st-cache",JSON.stringify(settings));
-  try{await postServer({action:"saveSettings",settings:{recipients:settings.recipients}});}catch(e){console.log("수신자 저장 실패");}
+  try{await postServer({action:"saveRecipients",recipients:settings.recipients});}catch(e){console.log("수신자 저장 실패");}
 }
 async function savePartDataToServer(){
   localStorage.setItem("defect-st-cache",JSON.stringify(settings));
@@ -514,9 +511,28 @@ function renderRegister(body){
 // ─── PREVIEW ───
 function renderPreview(body){
   const w=h("div",{className:"fade"});
-  const recips=(settings.recipients[form.division]||[]).filter(r=>r.active);
+  const allRecips=(settings.recipients[form.division]||[]).filter(r=>r.active);
+  const toRecips=allRecips.filter(r=>r.type!=="cc");
+  const ccRecips=allRecips.filter(r=>r.type==="cc");
+
   w.appendChild(h("div",{style:{display:"flex",alignItems:"center",gap:"12px",marginBottom:"12px"}},h("button",{className:"back-btn",onClick:()=>{previewMode=false;render();}},"← 수정"),h("span",{style:{fontSize:"16px",fontWeight:"800",color:"#111827"}},"메일 미리보기")));
-  const rb=h("div",{className:"preview-box"});rb.appendChild(h("span",{className:"preview-label"},`수신자 (${form.division})`));const rl=h("div");if(recips.length)recips.forEach(r=>rl.appendChild(h("span",{className:"recip-chip"},`${r.name} <${r.email}>`)));else rl.appendChild(h("span",{className:"hint"},"설정에서 수신자를 추가하세요"));rb.appendChild(rl);w.appendChild(rb);
+
+  // 수신자 (To)
+  const rb=h("div",{className:"preview-box"});
+  rb.appendChild(h("span",{className:"preview-label"},`수신 To (${form.division})`));
+  const rl=h("div");
+  if(toRecips.length)toRecips.forEach(r=>rl.appendChild(h("span",{className:"recip-chip"},`${r.name} <${r.email}>`)));
+  else rl.appendChild(h("span",{className:"hint"},"설정에서 수신자를 추가하세요"));
+  rb.appendChild(rl);w.appendChild(rb);
+
+  // 참조 (CC) — 항상 표시
+  const cb=h("div",{className:"preview-box"});
+  cb.appendChild(h("span",{className:"preview-label",style:{color:"#d97706"}},`참조 CC (${form.division})`));
+  const cl=h("div");
+  if(ccRecips.length)ccRecips.forEach(r=>cl.appendChild(h("span",{className:"recip-chip"},`${r.name} <${r.email}>`)));
+  else cl.appendChild(h("span",{className:"hint"},"참조 없음"));
+  cb.appendChild(cl);w.appendChild(cb);
+
   const sb=h("div",{className:"preview-box"});sb.appendChild(h("span",{className:"preview-label"},"제목"));sb.appendChild(h("span",{style:{fontSize:"14px",fontWeight:"700",color:"#111827"}},`[불량공지] ${form.type} - ${form.line} - ${form.product} ${form.process} - ${form.title}`));w.appendChild(sb);
   w.appendChild(h("div",{className:"email-preview",innerHTML:buildEmailHTML(form)}));
   if(form.photos.length){const ps=section("첨부 사진");const pd=h("div",{style:{display:"flex",gap:"8px"}});form.photos.forEach(p=>pd.appendChild(h("img",{src:p.data,style:{width:"120px",height:"90px",objectFit:"cover",borderRadius:"6px",border:"1px solid #e5e7eb"}})));ps.appendChild(pd);w.appendChild(ps);}
@@ -524,8 +540,9 @@ function renderPreview(body){
     if(sending)return;sending=true;sendBtn.textContent="⏳ 발송 중...";sendBtn.style.opacity="0.6";
     try{
       const id=`DEF-${Date.now()}`,record={...form,id,sentAt:new Date().toISOString(),photoUrls:[]};
-      const ar=(settings.recipients[form.division]||[]).filter(r=>r.active).map(r=>r.email);
-      if(SCRIPT_URL){const result=await postServer({action:"submit",record:{...record,photos:form.photos.map(p=>p.data)},recipients:ar});record.photoUrls=result.photoUrls||[];showToast("✅ 스프레드시트 저장 + 메일 발송 완료!");}
+      const toEmails=toRecips.map(r=>r.email);
+      const ccEmails=ccRecips.map(r=>r.email);
+      if(SCRIPT_URL){const result=await postServer({action:"submit",record:{...record,photos:form.photos.map(p=>p.data)},recipients:toEmails,cc:ccEmails});record.photoUrls=result.photoUrls||[];showToast("✅ 스프레드시트 저장 + 메일 발송 완료!");}
       else showToast("Apps Script 미연동","warn");
       history.unshift(record);saveHistory();form=newForm();previewMode=false;render();
     }catch(err){showToast("오류: "+err.message,"error");}sending=false;
@@ -567,7 +584,11 @@ function renderSettings(body){
   function sc(id,icon,title,desc){return h("div",{className:"set-card",onClick:()=>{settingsPage=id;render();}},h("div",{style:{display:"flex",alignItems:"center",gap:"10px"}},h("span",{style:{fontSize:"22px"}},icon),h("div",null,h("div",{style:{fontSize:"14px",fontWeight:"600",color:"#111827"}},title),h("div",{style:{fontSize:"12px",color:"#9ca3af"}},desc))),h("span",{style:{color:"#d1d5db",fontSize:"18px"}},"›"));}
 
   const g1=h("div",{className:"set-group"});g1.appendChild(h("div",{className:"set-group-title"},"메일 수신자"));
-  g1.appendChild(sc("recipients","📧","수신자 관리 (TCP / FE 별도)",`TCP ${(settings.recipients.TCP||[]).filter(r=>r.active).length}명 · FE ${(settings.recipients.FE||[]).filter(r=>r.active).length}명`));
+  const toTCP=(settings.recipients.TCP||[]).filter(r=>r.active&&r.type!=="cc").length;
+  const ccTCP=(settings.recipients.TCP||[]).filter(r=>r.active&&r.type==="cc").length;
+  const toFE=(settings.recipients.FE||[]).filter(r=>r.active&&r.type!=="cc").length;
+  const ccFE=(settings.recipients.FE||[]).filter(r=>r.active&&r.type==="cc").length;
+  g1.appendChild(sc("recipients","📧","수신자 관리 (TCP / FE 별도)",`TCP: To ${toTCP} CC ${ccTCP} · FE: To ${toFE} CC ${ccFE}`));
   w.appendChild(g1);
 
   const g2=h("div",{className:"set-group"});g2.appendChild(h("div",{className:"set-group-title"},"제품 / Part No 데이터"));
@@ -584,18 +605,62 @@ function renderSettings(body){
 function renderRecip(w){
   let sd="TCP";
   w.appendChild(h("button",{className:"back-btn",onClick:()=>{settingsPage=null;render();}},"← 설정"));
-  const sec=section("수신자 관리");sec.appendChild(h("p",{style:{fontSize:"12px",color:"#9ca3af",margin:"0 0 10px"}},"TCP와 FE 수신자를 별도 관리합니다."));
+  const sec=section("수신자 관리");sec.appendChild(h("p",{style:{fontSize:"12px",color:"#9ca3af",margin:"0 0 10px"}},"TCP와 FE 수신자를 별도 관리합니다. 수신(To) / 참조(CC)를 구분하여 설정하세요."));
   const dc=h("div",{className:"chips",style:{marginBottom:"12px"}}),lw=h("div",{id:"recip-list"});
   function rDC(){dc.innerHTML="";["TCP","FE"].forEach(v=>dc.appendChild(chip(`${v} 수신자`,sd===v,()=>{sd=v;rDC();rList();},v==="TCP"?"#c0392b":"#2471a3")));}
   function rList(){const el=document.getElementById("recip-list");if(!el)return;el.innerHTML="";const list=settings.recipients[sd]||[];
-    const row=h("div",{style:{display:"flex",gap:"6px",marginBottom:"10px"}});const iN=h("input",{className:"inp",placeholder:"이름",style:{flex:"1",minWidth:"0"}}),iE=h("input",{className:"inp",placeholder:"이메일",style:{flex:"2",minWidth:"0"}});
-    const ab=h("button",{className:"add-btn",onClick:()=>{if(!iN.value.trim()||!iE.value.trim()){showToast("이름과 이메일 입력","error");return;}if(!settings.recipients[sd])settings.recipients[sd]=[];settings.recipients[sd].push({name:iN.value.trim(),email:iE.value.trim(),active:true});saveSettingsToServer();rList();}},"+");
-    iE.addEventListener("keydown",e=>{if(e.key==="Enter")ab.click();});row.appendChild(iN);row.appendChild(iE);row.appendChild(ab);el.appendChild(row);
-    if(!list.length)el.appendChild(h("div",{style:{textAlign:"center",padding:"20px",color:"#d1d5db",fontSize:"13px"}},"등록된 수신자가 없습니다"));
-    list.forEach((r,i)=>{const it=h("div",{style:{display:"flex",alignItems:"center",gap:"8px",padding:"8px 0",borderBottom:"1px solid #f3f4f6"}});
-      it.appendChild(h("button",{className:"toggle-btn",style:{background:r.active?"#16a34a":"#d1d5db"},onClick:()=>{r.active=!r.active;saveSettingsToServer();rList();}},r.active?"✓":""));
-      const info=h("div",{style:{flex:"1",minWidth:"0"}});info.appendChild(h("div",{style:{fontSize:"13px",fontWeight:"600",color:r.active?"#111827":"#9ca3af"}},r.name));info.appendChild(h("div",{style:{fontSize:"12px",color:"#9ca3af",overflow:"hidden",textOverflow:"ellipsis"}},r.email));it.appendChild(info);
-      it.appendChild(h("button",{className:"del-btn",onClick:()=>{settings.recipients[sd].splice(i,1);saveSettingsToServer();rList();}},"✕"));el.appendChild(it);});}
+    // 입력 행: 이름, 이메일, To/CC 선택, 추가 버튼
+    let addType="to";
+    const row=h("div",{style:{display:"flex",gap:"6px",marginBottom:"6px"}});
+    const iN=h("input",{className:"inp",placeholder:"이름",style:{flex:"1",minWidth:"0"}});
+    const iE=h("input",{className:"inp",placeholder:"이메일",style:{flex:"2",minWidth:"0"}});
+    row.appendChild(iN);row.appendChild(iE);
+    const ab=h("button",{className:"add-btn",onClick:()=>{if(!iN.value.trim()||!iE.value.trim()){showToast("이름과 이메일 입력","error");return;}if(!settings.recipients[sd])settings.recipients[sd]=[];settings.recipients[sd].push({name:iN.value.trim(),email:iE.value.trim(),active:true,type:addType});saveSettingsToServer();rList();}},"+");
+    row.appendChild(ab);el.appendChild(row);
+    // To/CC 선택 칩
+    const typeRow=h("div",{style:{display:"flex",gap:"6px",marginBottom:"12px"}});
+    const toChip=h("button",{className:"chip on",style:{background:"#2563eb",fontSize:"12px",padding:"4px 12px"},onClick:()=>{addType="to";toChip.className="chip on";toChip.style.background="#2563eb";ccChip.className="chip";ccChip.style.background="";}},"수신 (To)");
+    const ccChip=h("button",{className:"chip",style:{fontSize:"12px",padding:"4px 12px"},onClick:()=>{addType="cc";ccChip.className="chip on";ccChip.style.background="#d97706";toChip.className="chip";toChip.style.background="";}},"참조 (CC)");
+    typeRow.appendChild(toChip);typeRow.appendChild(ccChip);
+    iE.addEventListener("keydown",e=>{if(e.key==="Enter")ab.click();});
+    el.appendChild(typeRow);
+
+    // 수신(To) 목록
+    const toList=list.filter(r=>r.type!=="cc");
+    const ccList=list.filter(r=>r.type==="cc");
+
+    if(toList.length||ccList.length){
+      if(toList.length){
+        el.appendChild(h("div",{style:{fontSize:"12px",fontWeight:"700",color:"#2563eb",marginBottom:"6px",marginTop:"4px"}},"수신 (To)"));
+        toList.forEach(r=>{renderRecipItem(el,r,sd);});
+      }
+      if(ccList.length){
+        el.appendChild(h("div",{style:{fontSize:"12px",fontWeight:"700",color:"#d97706",marginBottom:"6px",marginTop:"10px"}},"참조 (CC)"));
+        ccList.forEach(r=>{renderRecipItem(el,r,sd);});
+      }
+    } else {
+      el.appendChild(h("div",{style:{textAlign:"center",padding:"20px",color:"#d1d5db",fontSize:"13px"}},"등록된 수신자가 없습니다"));
+    }
+  }
+  function renderRecipItem(el,r,sd){
+    const it=h("div",{style:{display:"flex",alignItems:"center",gap:"8px",padding:"8px 0",borderBottom:"1px solid #f3f4f6"}});
+    it.appendChild(h("button",{className:"toggle-btn",style:{background:r.active?"#16a34a":"#d1d5db"},onClick:()=>{r.active=!r.active;saveSettingsToServer();rList();}},r.active?"✓":""));
+    const info=h("div",{style:{flex:"1",minWidth:"0"}});
+    info.appendChild(h("div",{style:{fontSize:"13px",fontWeight:"600",color:r.active?"#111827":"#9ca3af"}},r.name));
+    info.appendChild(h("div",{style:{fontSize:"12px",color:"#9ca3af",overflow:"hidden",textOverflow:"ellipsis"}},r.email));
+    it.appendChild(info);
+    // To/CC 토글
+    const typeBtn=h("button",{style:{fontSize:"10px",fontWeight:"700",padding:"3px 8px",borderRadius:"4px",border:"none",cursor:"pointer",color:"#fff",background:r.type==="cc"?"#d97706":"#2563eb"},onClick:()=>{r.type=r.type==="cc"?"to":"cc";saveSettingsToServer();rList();}},r.type==="cc"?"CC":"To");
+    it.appendChild(typeBtn);
+    it.appendChild(h("button",{className:"del-btn",onClick:()=>{
+      // 객체 참조로 정확히 찾아서 삭제
+      const arr=settings.recipients[sd];
+      const realIdx=arr.indexOf(r);
+      if(realIdx>-1)arr.splice(realIdx,1);
+      saveSettingsToServer();rList();
+    }},"✕"));
+    el.appendChild(it);
+  }
   sec.appendChild(dc);sec.appendChild(lw);w.appendChild(sec);rDC();setTimeout(rList,0);
 }
 
